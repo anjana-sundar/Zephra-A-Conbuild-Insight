@@ -158,6 +158,44 @@ https://github.com/user-attachments/assets/6d194287-a56f-4777-ab25-8e48ed73afbc
 ```
 
 ---
+🦺 PPE Detection using YOLOv8
+
+🚨 Problem
+
+India reports 40,000–48,000 construction deaths annually, mainly due to lack of proper safety measures. Many workers do not use essential PPE like helmets, gloves, and safety vests.
+
+💡 Solution
+
+This project uses YOLOv8 to detect:
+
+👷 Workers![construction-safety](https://github.com/user-attachments/assets/3e4bb9df-89af-45b6-9159-ff2268999ebf)
+
+🦺 PPE (result)<img width="2400" height="1200" alt="results" src="https://github.com/user-attachments/assets/1b8b8ce7-0d68-44b8-a4a4-d6a5887edac1" />
+
+⚠️ Safety violations in real-time<img width="3000" height="2250" alt="confusion_matrix" src="https://github.com/user-attachments/assets/fcee85b1-bceb-4b56-af4e-a48a85d0638e" />
+
+
+It helps improve site safety monitoring and compliance.
+
+⚙️ Features
+Real-time PPE detection
+Safety violation alerts
+Works on images, videos & live camera
+Lightweight and scalable
+🎯 Impact
+Reduces accidents
+Improves worker safety
+Enables smart site monitoring
+🛠️ Tech Stack
+YOLOv8
+Python
+OpenCV
+Streamlit (optional UI)
+🚀 Usage
+pip install -r requirements.txt
+python app.py
+
+If you want, I can make an even more attractive GitHub README (with badges + UI design + architecture) 🔥
 
 ## 📄 License
 
