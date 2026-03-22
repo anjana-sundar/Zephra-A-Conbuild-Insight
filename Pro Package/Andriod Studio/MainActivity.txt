@@ -1,0 +1,500 @@
+package com.example.v4;
+
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.SwitchCompat;
+import androidx.constraintlayout.widget.ConstraintLayout;
+import androidx.fragment.app.Fragment;
+
+import android.annotation.SuppressLint;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
+import android.os.Bundle;
+import android.os.Handler;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.CompoundButton;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.widget.SeekBar;
+import android.widget.Switch;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import java.io.BufferedReader;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.text.DecimalFormat;
+import java.util.Calendar;
+
+import static android.os.SystemClock.elapsedRealtime;
+import static java.lang.Float.parseFloat;
+import static java.lang.Float.valueOf;
+import static java.lang.Math.abs;
+import static java.lang.Math.asin;
+import static java.lang.Math.floor;
+import static java.lang.StrictMath.atan2;
+
+
+public class MainActivity extends AppCompatActivity {
+
+    public String log_String = "";
+    public final int TCP_OUT_BUFF_SIZE = 13;
+    public final int TCP_IN_BUFF_SIZE = 34;
+    public volatile int P_gain=0, I_gain=0, D_gain=0, roll, pitch, yaw, roll_offset, pitch_offset;
+    public volatile int throttle = 0, RJoy_X = 50, RJoy_Y = 50, Joy_yaw = 50;
+    public volatile float qw,qx,qy,qz;
+    public volatile int killer;
+    public volatile boolean tcpLoop;
+    public boolean DrawerVisibility = false, is_map_Big = false;
+    public volatile boolean killStreaming = false;
+    public Bitmap bitmap_img;
+    public float Vehicle_gps_lattitude, Vehicle_gps_longitude;
+    public float Vehicle_velocity_X, Vehicle_velocity_Y;
+    public int Vehicle_gps_Sat_count, Vehicle_gps_fix_type;
+    public String Vehicle_gps_HDOP;
+
+    public boolean set_GPS_Hold_mode_ON = false;
+
+    public char Vehicle_cmd[] = new char[2];
+    public char Vehicle_cmd_prev[] = new char[2];
+    public char Vehicle_status[] = new char[8];
+
+
+
+    @SuppressLint({"ClickableViewAccessibility", "SetTextI18n"})
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        int uiOptions = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE;
+        getWindow().getDecorView().setSystemUiVisibility(uiOptions);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        DecimalFormat df1 = new DecimalFormat("#.#");
+        DecimalFormat df2 = new DecimalFormat("#.##");
+        DecimalFormat df3 = new DecimalFormat("#.###");
+
+        ConstraintLayout Drawer = (ConstraintLayout) findViewById(R.id.drawer);
+        ConstraintLayout PID_Window = (ConstraintLayout) findViewById(R.id.pid_window);
+        ConstraintLayout Right_Joystick = (ConstraintLayout) findViewById(R.id.right_joystick);
+        ConstraintLayout Left_Joystick = (ConstraintLayout) findViewById(R.id.left_Joystick);
+
+        TextView BottomTV = (TextView)findViewById(R.id.bottomTV);
+        TextView Ljoy_TV = (TextView)findViewById(R.id.left_JoyTV);
+        TextView Rjoy_TV = (TextView)findViewById(R.id.right_joyTV);
+        TextView pid_TV = (TextView)findViewById(R.id.pidTV);
+        TextView sat_countTV = (TextView)findViewById(R.id.Sat_textView);
+        TextView Vehicle_nav_TV = (TextView)findViewById(R.id.vehicle_nav_TV);
+        TextView GPS_Hold_text_TV = (TextView)findViewById(R.id.GPS_Hold_text);
+        TextView yawJoy_TV = (TextView)findViewById(R.id.yaw_joyTV);
+
+        EditText IP_Text = (EditText)findViewById(R.id.ipText);
+
+
+        Button Connect_Btn = (Button)findViewById(R.id.connectBtn);
+        Button Video_en_disable = (Button) findViewById(R.id.video_en_disable);
+
+        ImageButton settingbtn = (ImageButton)findViewById(R.id.settingsbtn);
+        ImageButton Shutdownbtn = (ImageButton)findViewById(R.id.shutdownbtn);
+        ImageButton map_expannd_contract_btn = (ImageButton) findViewById(R.id.map_expand_contract_btn);
+
+        SwitchCompat direction_toggle_pid = (SwitchCompat) findViewById(R.id.dir_t_pid);
+        SwitchCompat direction_toggle_gps_mode = (SwitchCompat) findViewById(R.id.dir_t_gps_mode);
+
+        SeekBar yaw_joystick_seekBar = (SeekBar)findViewById(R.id.yaw_joystick);
+        SeekBar P_seek = (SeekBar)findViewById(R.id.seekBarP);
+        SeekBar I_seek = (SeekBar)findViewById(R.id.seekBarI);
+        SeekBar D_seek = (SeekBar)findViewById(R.id.seekBarD);
+        SeekBar Roll_off_seek = (SeekBar)findViewById(R.id.seekBar_roll_offset);
+        SeekBar Pitch_off_seek = (SeekBar)findViewById(R.id.seekBar_pitch_offset);
+
+        Roll_off_seek.setProgress(50);      Pitch_off_seek.setProgress(50);
+
+        ImageView Stream_imV = (ImageView) findViewById(R.id.Video_stream_imV);
+
+        Bundle map_bundle = new Bundle();
+        Fragment fragment = new MapFragment();
+        getSupportFragmentManager().beginTransaction().replace(R.id.map_frame_layout, fragment).commit();
+        fragment.setArguments(map_bundle);
+        ConstraintLayout.LayoutParams params = (ConstraintLayout.LayoutParams)findViewById(R.id.map_frame_layout).getLayoutParams();
+
+
+        Right_Joystick.setOnTouchListener((view, motionEvent) -> {
+            if (motionEvent.getAction() == MotionEvent.ACTION_MOVE){
+                int X = (int) motionEvent.getX()/5;
+                int Y = (int) motionEvent.getY()/5;
+                if (X<0){X=0;} else if (X>100){X=100;}
+                if (Y<0){Y=0;} else if (Y>100){Y=100;}
+                RJoy_X = X; RJoy_Y = 100 - Y;
+                Rjoy_TV.setText(Integer.toString(RJoy_X-50) + " " + Integer.toString(RJoy_Y-50));
+            }
+            else if (motionEvent.getAction() == MotionEvent.ACTION_UP){
+                RJoy_X = 50;  RJoy_Y = 50;
+                Rjoy_TV.setText(Integer.toString(RJoy_X-50) + " " + Integer.toString(RJoy_Y-50));
+            }
+            else if (motionEvent.getAction() == MotionEvent.ACTION_DOWN){
+                int X = (int) motionEvent.getX()/5;
+                int Y = (int) motionEvent.getY()/5;
+                if (X<0){X=0;} else if (X>100){X=100;}
+                if (Y<0){Y=0;} else if (Y>100){Y=100;}
+                RJoy_X = X; RJoy_Y = 100 - Y;
+                Rjoy_TV.setText(Integer.toString(RJoy_X-50) + " " + Integer.toString(RJoy_Y-50));
+            }
+            return true;
+        });
+
+        Left_Joystick.setOnTouchListener((view, motionEvent) -> {
+            if (motionEvent.getAction() == MotionEvent.ACTION_MOVE){
+                int Y = (int) motionEvent.getY()/7;
+                if (Y<0){Y=0;} else if (Y>100){Y=100;}
+                throttle = 100 - Y;
+                Ljoy_TV.setText(Integer.toString(throttle));
+            }
+            else if (motionEvent.getAction() == MotionEvent.ACTION_DOWN){
+                int Y = (int) motionEvent.getY()/7;
+                if (Y<0){Y=0;} else if (Y>100){Y=100;}
+                throttle = 100 - Y;
+                Ljoy_TV.setText(Integer.toString(throttle));
+            }
+            return true;
+        });
+
+        yaw_joystick_seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                Joy_yaw = progress;
+                yawJoy_TV.setText(Integer.toString(Joy_yaw-50));
+            }
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                Joy_yaw = yaw_joystick_seekBar.getProgress();
+                yawJoy_TV.setText(Integer.toString(Joy_yaw-50));
+            }
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                Joy_yaw = 50;
+                yaw_joystick_seekBar.setProgress(50);
+                yawJoy_TV.setText("0");
+            }
+        });
+
+        direction_toggle_pid.setOnCheckedChangeListener((compoundButton, b) -> {
+            if (b){
+                PID_Window.setVisibility(View.VISIBLE);
+            }else{
+                PID_Window.setVisibility(View.GONE);
+            }
+
+        });
+
+        direction_toggle_gps_mode.setOnCheckedChangeListener((compoundButton, b) -> {
+            set_GPS_Hold_mode_ON = b;
+            if(set_GPS_Hold_mode_ON){
+                if( Vehicle_gps_fix_type == 3 && Vehicle_gps_Sat_count >=6 ){
+                    Vehicle_cmd[0] = 'M'; Vehicle_cmd[1] = 'G'; GPS_Hold_text_TV.setTextColor(Color.GREEN);
+                } else{ Vehicle_cmd[0] = 'M'; Vehicle_cmd[1] = 'N'; GPS_Hold_text_TV.setTextColor(Color.RED); }     //alter
+            }
+            else if(!set_GPS_Hold_mode_ON){
+                Vehicle_cmd[0] = 'M'; Vehicle_cmd[1] = 'N';
+                Vehicle_nav_TV.setText("Vx:  0  m/s\nVy:  0  m/s");
+                GPS_Hold_text_TV.setTextColor(Color.BLACK);
+            }
+        });
+
+        settingbtn.setOnClickListener(view -> {
+            DrawerVisibility = !DrawerVisibility;
+            if(DrawerVisibility){ Drawer.setVisibility(View.VISIBLE); Left_Joystick.setVisibility(View.GONE);}
+            else { Drawer.setVisibility(View.GONE); Left_Joystick.setVisibility(View.VISIBLE);}
+        });
+
+        map_expannd_contract_btn.setOnClickListener(view -> {
+            is_map_Big = !is_map_Big;
+            if(is_map_Big){
+                params.height = 800; params.width = 800; findViewById(R.id.map_frame_layout).setLayoutParams(params);
+                map_expannd_contract_btn.setImageResource(R.drawable.baseline_keyboard_double_arrow_left_24);
+            } else{
+                params.height = 330; params.width = 330; findViewById(R.id.map_frame_layout).setLayoutParams(params);
+                map_expannd_contract_btn.setImageResource(R.drawable.baseline_keyboard_double_arrow_right_24);
+            }
+        });
+
+        Video_en_disable.setOnClickListener(view -> {
+            killStreaming = false;
+            killer = 6;
+            int width = 640;  int height = 480;  int raw_res = width*height;
+            int Y_len = raw_res;  int U_or_V_len = Y_len/4;
+            int rgb_buff_len = raw_res*3;  int yuv_buff_len = (int)(raw_res*1.5);
+            int UV_height = height/2;  int UV_width = width/2;  int[] pixels = new int[raw_res];
+            char[] img_rgb_buff = new char[rgb_buff_len];  char[] temp_img_rgb_buff = new char[rgb_buff_len];
+            char[] img_yuv_buff = new char[yuv_buff_len];  char[] temp_img_yuv_buff = new char[yuv_buff_len];
+
+            final Handler handler = new Handler();
+            Runnable Update_tcp_recv_image = new Runnable() {
+                @Override
+                public void run() {
+                    Stream_imV.setImageBitmap(bitmap_img);
+                }
+            };
+
+            Runnable get_TCP_img_buff = new Runnable() {
+                @Override
+                public void run() {
+                    BufferedReader input_vid;
+                    Socket socket_vid;
+                    int buffer_len = 0;
+                    int total_buffer_len_till_now = 0;
+                    int R,G,B,y1,y2,y3,y4,u,v;
+
+                    try {
+                        socket_vid = new Socket(IP_Text.getText().toString(), 6666);
+                        input_vid = new BufferedReader(new InputStreamReader(socket_vid.getInputStream(), "ISO-8859-1"));
+                        while(!killStreaming){
+
+                            while (total_buffer_len_till_now < yuv_buff_len ){
+                                buffer_len = input_vid.read(temp_img_yuv_buff,0, (yuv_buff_len - total_buffer_len_till_now));
+                                for (int count=0; count<buffer_len; count++){
+                                    img_yuv_buff[total_buffer_len_till_now + count] = temp_img_yuv_buff[count];
+                                }
+                                total_buffer_len_till_now = total_buffer_len_till_now + buffer_len;
+                            }
+                            total_buffer_len_till_now = 0;
+
+
+
+                           int uv_counter=0;
+                            for(int cntH=0; cntH<UV_height; cntH++){
+                                for(int cntW=0; cntW<UV_width; cntW++){
+                                    y1 = (int)img_yuv_buff[cntH*width*2 + cntW*2];
+                                    y2 = (int)img_yuv_buff[cntH*width*2 + cntW*2 + 1];
+                                    y3 = (int)img_yuv_buff[cntH*width*2 + width + cntW*2];
+                                    y4 = (int)img_yuv_buff[cntH*width*2 + width + cntW*2 + 1];
+
+                                    u = (int)img_yuv_buff[Y_len + uv_counter];
+                                    v = (int)img_yuv_buff[Y_len + U_or_V_len + uv_counter];
+
+                                    R =  (int)(y1  + 1.402*( v - 128 ));
+                                    G =  (int)(y1  - 0.344*( u - 128 ) - 0.714*( v - 128 ));
+                                    B =  (int)(y1  + 1.772*( u - 128 ));
+                                    if (R>255){R=225;} else if (R<0){R=0;}
+                                    if (G>255){G=225;} else if (G<0){G=0;}
+                                    if (B>255){B=225;} else if (B<0){B=0;}
+                                    pixels[cntH*width*2 + cntW*2] = Color.rgb(R, G, B);
+                                    R =  (int)(y2  + 1.402*( v - 128 ));
+                                    G =  (int)(y2  - 0.344*( u - 128 ) - 0.714*( v - 128 ));
+                                    B =  (int)(y2  + 1.772*( u - 128 ));
+                                    if (R>255){R=225;} else if (R<0){R=0;}
+                                    if (G>255){G=225;} else if (G<0){G=0;}
+                                    if (B>255){B=225;} else if (B<0){B=0;}
+                                    pixels[cntH*width*2 + cntW*2+1] = Color.rgb(R, G, B);
+                                    R =  (int)(y3  + 1.402*( v - 128 ));
+                                    G =  (int)(y3  - 0.344*( u - 128 ) - 0.714*( v - 128 ));
+                                    B =  (int)(y3  + 1.772*( u - 128 ));
+                                    if (R>255){R=225;} else if (R<0){R=0;}
+                                    if (G>255){G=225;} else if (G<0){G=0;}
+                                    if (B>255){B=225;} else if (B<0){B=0;}
+                                    pixels[cntH*width*2 + width + cntW*2] = Color.rgb(R, G, B);
+                                    R =  (int)(y4  + 1.402*( v - 128 ));
+                                    G =  (int)(y4  - 0.344*( u - 128 ) - 0.714*( v - 128 ));
+                                    B =  (int)(y4  + 1.772*( u - 128 ));
+                                    if (R>255){R=225;} else if (R<0){R=0;}
+                                    if (G>255){G=225;} else if (G<0){G=0;}
+                                    if (B>255){B=225;} else if (B<0){B=0;}
+                                    pixels[cntH*width*2 + width + cntW*2 + 1] = Color.rgb(R, G, B);
+                                    uv_counter++;
+                                }
+                            }
+                            bitmap_img = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888);
+                            handler.post(Update_tcp_recv_image);
+                        }
+
+                    }catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            };
+
+            Thread img_from_tcp_thread = new Thread(get_TCP_img_buff);
+            img_from_tcp_thread.start();
+        });
+
+        Connect_Btn.setOnClickListener(view -> {
+            Drawer.setVisibility(View.GONE);
+            Left_Joystick.setVisibility(View.VISIBLE);
+            tcpLoop = true;
+            killer=5;
+
+            final Handler handler = new Handler();
+            Runnable UpdateUI = new Runnable() {
+                @Override
+                public void run() {
+                    if (tcpLoop) {
+
+                        if(set_GPS_Hold_mode_ON){Vehicle_nav_TV.setText("Vx:  " + df1.format(Vehicle_velocity_X) + "  m/s\nVy:  " + df1.format(Vehicle_velocity_Y) + "  m/s");}
+
+//                        pid_TV.setText("P:    " + df2.format((float)P_gain) + "       I:    " + df3.format((float)I_gain/100.0f) + "       D:    " + df3.format((float)D_gain/5.0f)
+//                                + "       R:    " + (roll_offset-25) + "       P:    " + (pitch_offset-25) );
+
+                        BottomTV.setText("Roll " + Integer.toString(roll) + " : Pitch "+ Integer.toString(pitch) +" : Yaw "+ Integer.toString(yaw));
+
+                        sat_countTV.setText(Integer.toString(Vehicle_gps_Sat_count));
+                        if(Vehicle_gps_fix_type == 1){ sat_countTV.setTextColor(Color.RED); } else{ sat_countTV.setTextColor(Color.BLACK); }
+
+
+                    }else{
+                        Toast.makeText(MainActivity.this, "Vehicle Shutting Down...", Toast.LENGTH_LONG).show();
+                    }
+                }
+            };
+            Runnable get_ctrl_runnable = new Runnable() {
+                @Override
+                public void run() {
+                    PrintWriter output;
+                    BufferedReader input;
+                    Socket socket;
+                    try {
+                        socket = new Socket(IP_Text.getText().toString(), 9191);
+                        output = new PrintWriter(socket.getOutputStream());
+                        input = new BufferedReader(new InputStreamReader(socket.getInputStream(),"ISO-8859-1"));
+                        char send[] = new char[TCP_OUT_BUFF_SIZE];
+                        char recv[] = new char[TCP_IN_BUFF_SIZE];
+                        int confirm_Loop_Exit = 0;
+
+                        while(true){
+
+                            P_gain = P_seek.getProgress(); I_gain = I_seek.getProgress(); D_gain = D_seek.getProgress();
+                            roll_offset = (int)( Roll_off_seek.getProgress() / 2 );
+                            pitch_offset = (int)( Pitch_off_seek.getProgress() / 2 );
+
+                            //----------------WRITE_DATA_UPDATE----------------//
+                            send[0]= '$'; send[1]= (char)RJoy_X; send[2]= (char)RJoy_Y; send[3]= (char)throttle; send[4]= (char)Joy_yaw;
+                            send[5] = Vehicle_cmd[0]; send[6] = Vehicle_cmd[1];
+                            send[7]= (char)P_gain; send[8]= (char)I_gain; send[9]= (char)D_gain;
+                            send[10]= (char)roll_offset; send[11]= (char)pitch_offset;
+                            send[12]= '*';
+                            //------------------------------------------------//
+
+
+                            //-------------------READ_WRITE-------------------//
+                            output.write(send, 0 ,TCP_OUT_BUFF_SIZE);
+                            output.flush();
+                            input.read(recv,0,TCP_IN_BUFF_SIZE);
+                            String recv_string = String.valueOf(recv);
+                            //------------------------------------------------//
+
+
+
+                            //------------------RECV_DECODE-------------------//
+                            if(recv[0] == '$' && recv[TCP_IN_BUFF_SIZE-1] == '*') {
+                                //-----------------Quaternion_Angle_Calculation-----------------//
+                                qw = (float) (((int) recv[1] / (float) 100) - 1);
+                                qx = (float) (((int) recv[2] / (float) 100) - 1);
+                                qy = (float) (((int) recv[3] / (float) 100) - 1);
+                                qz = (float) (((int) recv[4] / (float) 100) - 1);
+                                roll = (int) (57.2958f * asin(2 * (qw * qy - qz * qx)));
+                                pitch = (int) (-57.2958f * atan2(2 * (qw * qx + qy * qz), 1 - 2 * (qx * qx + qy * qy)));
+                                yaw = (int) (-57.2958f * atan2((2 * (qw * qz + qx * qy)), (1 - 2 * (qy * qy + qz * qz))));
+                                //--------------------------------------------------------------//
+
+                                //----------Update_Vehicle_Map_Date------------//
+
+                                if (recv[9] == '.' && recv[20] == '.') {
+                                    float temp = 0;
+                                    temp += (float) (10 * (recv[7] - 48));
+                                    temp += (float) (recv[8] - 48);
+                                    temp += (float) ((float) (recv[10] - 48) / (float) 10);
+                                    temp += (float) ((float) (recv[11] - 48) / (float) 100);
+                                    temp += (float) ((float) (recv[12] - 48) / (float) 1000);
+                                    temp += (float) ((float) (recv[13] - 48) / (float) 10000);
+                                    temp += (float) ((float) (recv[14] - 48) / (float) 100000);
+                                    temp = temp / (float) 60;
+                                    Vehicle_gps_lattitude = (float) (10 * (recv[5] - 48)) + (float) (recv[6] - 48) + temp;
+                                    temp = 0;
+
+                                    temp += (float) (10 * (recv[18] - 48));
+                                    temp += (float) (recv[19] - 48);
+                                    temp += (float) ((float) (recv[21] - 48) / (float) 10);
+                                    temp += (float) ((float) (recv[22] - 48) / (float) 100);
+                                    temp += (float) ((float) (recv[23] - 48) / (float) 1000);
+                                    temp += (float) ((float) (recv[24] - 48) / (float) 10000);
+                                    temp += (float) ((float) (recv[25] - 48) / (float) 100000);
+                                    temp = temp / (float) 60;
+                                    Vehicle_gps_longitude = (float) (100 * (recv[15] - 48)) + (float) (10 * (recv[16] - 48)) + (float) (recv[17] - 48) + temp;
+                                    temp = 0;
+
+
+                                    Vehicle_gps_fix_type = (int) (recv[26] - 48);
+                                    Vehicle_gps_Sat_count = (int) recv[27];
+                                    Vehicle_gps_HDOP = recv_string.substring(28, 30);
+
+                                } else {
+                                    Vehicle_gps_lattitude = 0;
+                                    Vehicle_gps_longitude = 0;
+                                    Vehicle_gps_fix_type = 0;
+                                    Vehicle_gps_Sat_count = 0;
+                                    Vehicle_gps_HDOP = "0";
+                                }
+
+                                //----------------------Vehicle_Status----------------------//
+                                Vehicle_status[0] = recv[31]; Vehicle_status[1] = recv[32];
+
+                                Vehicle_velocity_X = ( (float)(int)Vehicle_status[0] - 128 )/10.0f;
+                                Vehicle_velocity_Y = ( (float)(int)Vehicle_status[1] - 128 )/10.0f;
+
+                                //----------------------------------------------------------//
+
+                                map_bundle.putFloat("key_vehicle_gps_lattitude", Vehicle_gps_lattitude);
+                                map_bundle.putFloat("key_vehicle_gps_longitude", Vehicle_gps_longitude);
+                                map_bundle.putInt("key_vehicle_gps_fix_type", Vehicle_gps_fix_type);
+
+                                //---------------------------------------------//
+                            }
+                            //------------------------------------------------//
+
+
+                            //---------------------DELAY----------------------//
+                            synchronized (this) {
+                                try {
+                                    wait(10);
+                                } catch (InterruptedException e) {
+                                    e.printStackTrace();
+                                }
+                            }  // delay
+                            //------------------------------------------------//
+
+
+                            if (!tcpLoop) { confirm_Loop_Exit++; Vehicle_cmd[0] = '!'; Vehicle_cmd[1] = '1'; }
+                            if (confirm_Loop_Exit == 2) { break; }
+
+                            handler.post(UpdateUI);    //UpdateUI
+
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            };
+            Thread tcp_ctrl_thread = new Thread(get_ctrl_runnable);
+            tcp_ctrl_thread.start();
+        });
+
+        Shutdownbtn.setOnClickListener(view -> {
+            killer = 109;
+            killStreaming = true;
+            tcpLoop = false;
+        });
+
+    }
+}

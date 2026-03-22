@@ -1,0 +1,87 @@
+package com.example.v4;
+
+import android.os.Bundle;
+
+import androidx.annotation.NonNull;
+import androidx.fragment.app.Fragment;
+
+import android.os.Handler;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptor;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.MarkerOptions;
+
+public class MapFragment extends Fragment {
+
+    private float Vehicle_Lattitude = 22;
+    private float Vehicle_Longitude = 86;
+    private final float Lattitude_shifted_myGPS_offset = -0.0000345f; // My gps modules shows slightly ofset position, if yours doesn't then make it ZERO.
+    private final float Longitude_shifted_myGPS_offset = -0.0000717f;
+    private final int MAP_UPDATE_FREQUENCY = 5; // In Hertz
+    private int Vehicle_gps_FixType = 1;
+
+
+
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+
+        Bundle bundle_map_data = getArguments();
+
+        View view = inflater.inflate(R.layout.fragment_map, container, false);
+        SupportMapFragment supportMapFragment = (SupportMapFragment) getChildFragmentManager().findFragmentById(R.id.map_fragment);
+        supportMapFragment.getMapAsync(new OnMapReadyCallback() {
+            @Override
+            public void onMapReady(@NonNull GoogleMap googleMap) {
+                googleMap.setMapType(com.google.android.gms.maps.GoogleMap.MAP_TYPE_SATELLITE);
+                googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(Vehicle_Lattitude, Vehicle_Longitude), 16.8f));
+
+                final Handler handler = new Handler();
+                Runnable Update_map = new Runnable() {
+                    @Override
+                    public void run() {
+                        googleMap.clear();
+                        LatLng uav_latlng = new LatLng(Vehicle_Lattitude, Vehicle_Longitude);
+                        if( Vehicle_gps_FixType==2 || Vehicle_gps_FixType==3 ){
+                            googleMap.addMarker(new MarkerOptions().position(uav_latlng));
+                            googleMap.moveCamera(CameraUpdateFactory.newLatLng(uav_latlng));
+                        }
+                    }
+                };
+
+                Runnable getBundle_map_data = new Runnable() {
+                    @Override
+                    public void run() {
+                        while (true){
+
+                            Vehicle_Lattitude = bundle_map_data.getFloat("key_vehicle_gps_lattitude") - Lattitude_shifted_myGPS_offset;
+                            Vehicle_Longitude = bundle_map_data.getFloat("key_vehicle_gps_longitude") - Longitude_shifted_myGPS_offset;
+                            Vehicle_gps_FixType = bundle_map_data.getInt("key_vehicle_gps_fix_type");
+
+                            synchronized (this) {
+                                try {
+                                    wait((int)(1000/MAP_UPDATE_FREQUENCY));
+                                } catch (InterruptedException e) {
+                                    e.printStackTrace();
+                                }
+                            }  // delay
+
+                            handler.post(Update_map);
+                        }
+                    }
+                };
+                Thread img_from_tcp_thread = new Thread(getBundle_map_data);
+                img_from_tcp_thread.start();
+
+            }
+        });
+        return view;
+
+    }
+}
